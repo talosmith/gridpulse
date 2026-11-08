@@ -1,0 +1,32 @@
+# Databricks Asset Bundle: deploy with `databricks bundle deploy`
+bundle:
+  name: gridpulse
+
+variables:
+  catalog:
+    description: Unity Catalog catalog (use "workspace" if you cannot create catalogs)
+    default: gridpulse
+
+resources:
+  pipelines:
+    gridpulse:
+      name: gridpulse
+      catalog: ${var.catalog}
+      schema: gridpulse
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ./databricks/pipelines/bronze.py
+        - file:
+            path: ./databricks/pipelines/silver.py
+        - file:
+            path: ./databricks/pipelines/gold.py
+      configuration:
+        gridpulse.landing: /Volumes/${var.catalog}/raw/landing
+
+targets:
+  dev:
+    mode: development
+    default: true

@@ -1,0 +1,54 @@
+name: ingest
+
+on:
+  schedule:
+    - cron: "17 */3 * * *" # every 3 hours; REE republishes recent values, overlap is deduped in silver
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backfill start (YYYY-MM-DD), empty = yesterday"
+        required: false
+      end:
+        description: "Backfill end (YYYY-MM-DD), empty = today"
+        required: false
+  push:
+    branches: [main]
+    paths: ["ingestion/**", "tests/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest -v
+
+  collect:
+    needs: test
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      GRIDPULSE_VOLUME: ${{ vars.GRIDPULSE_VOLUME || '/Volumes/gridpulse/raw/landing' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Collect raw data into the Unity Catalog volume
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          ARGS="--sink databricks"
+          if [ -n "$START" ]; then ARGS="$ARGS --start $START"; fi
+          if [ -n "$END" ]; then ARGS="$ARGS --end $END"; fi
+          python -m ingestion.run $ARGS
+      - name: Trigger the bronze pipeline
+        if: ${{ vars.DATABRICKS_PIPELINE_ID != '' }}
+        run: |
+          curl -sf -X POST "https://${DATABRICKS_HOST#https://}/api/2.0/pipelines/${{ vars.DATABRICKS_PIPELINE_ID }}/updates" \
+            -H "Authorization: Bearer $DATABRICKS_TOKEN" -H "Content-Type: application/json" -d '{}'
