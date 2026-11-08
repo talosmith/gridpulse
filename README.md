@@ -2,6 +2,8 @@
 
 **A lakehouse and AI agent for the European electricity market, built on real public data.**
 
+![GridPulse architecture](docs/gridpulse-architecture.png)
+
 GridPulse collects Spanish grid data (Red Eléctrica de España) and weather for the regions where Spain's wind and solar power is generated. It refines that data in a Databricks lakehouse, forecasts prices, and exposes the curated data to a Claude agent over **MCP**, so anyone can ask *"why did the price go negative on Sunday?"* and get an answer backed by SQL and sources.
 
 > **Why it matters:** in the first two weeks collected (25 Oct – 8 Nov 2026), the Spanish day-ahead price ranged from **−1.46 €/MWh** to **326 €/MWh**. The pattern is plain in the gold table:
