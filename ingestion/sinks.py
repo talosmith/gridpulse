@@ -38,6 +38,25 @@ class LocalSink:
         return str(target)
 
 
+class SinkError(RuntimeError):
+    """The destination itself is unusable: retrying other files would fail the same way."""
+
+
+def normalize_host(host: str) -> str:
+    """Keep only scheme + domain, so a URL pasted from the browser address bar still works.
+
+    'dbc-1.cloud.databricks.com', 'https://dbc-1.cloud.databricks.com/?o=42#browse'
+    -> 'https://dbc-1.cloud.databricks.com'
+    """
+    host = host.strip()
+    if "://" not in host:
+        host = f"https://{host}"
+    parsed = urllib.parse.urlsplit(host)
+    if not parsed.netloc:
+        raise SinkError("DATABRICKS_HOST is empty or not a URL")
+    return f"https://{parsed.netloc}"
+
+
 class DatabricksVolumeSink:
     """Uploads through the Databricks Files API (works on Free Edition).
 
@@ -45,13 +64,27 @@ class DatabricksVolumeSink:
     """
 
     def __init__(self, host: str, token: str, volume_root: str):
-        if not volume_root.startswith("/Volumes/"):
-            raise ValueError("volume_root must look like /Volumes/<catalog>/<schema>/<volume>")
-        self.host = host.rstrip("/")
-        if not self.host.startswith("https://"):
-            self.host = f"https://{self.host}"
-        self.token = token
-        self.volume_root = volume_root.rstrip("/")
+        parts = volume_root.strip("/").split("/")
+        if len(parts) < 4 or parts[0] != "Volumes":
+            raise SinkError("volume_root must look like /Volumes/<catalog>/<schema>/<volume>[/subdir]")
+        self.host = normalize_host(host)
+        self.token = token.strip()
+        self.volume_root = "/" + "/".join(parts)
+        self.volume = "/" + "/".join(parts[:4])
+
+    def check(self) -> None:
+        """Fail fast, with a readable reason, before collecting anything."""
+        try:
+            self._request("HEAD", f"/api/2.0/fs/directories{_quote(self.volume)}")
+        except SinkError as error:
+            code = getattr(error, "code", None)
+            hint = {
+                401: "the token is invalid or expired (DATABRICKS_TOKEN)",
+                403: "the token has no permission on this volume",
+                404: (f"volume {self.volume} not found, or DATABRICKS_HOST is not the workspace URL "
+                      f"(using {self.host.split('.')[0]}...)"),
+            }.get(code, "unexpected answer")
+            raise SinkError(f"Databricks preflight failed: {hint}. {error}") from None
 
     def write(self, envelope: Envelope) -> str:
         path = f"{self.volume_root}/{relative_path(envelope)}"
@@ -77,7 +110,11 @@ class DatabricksVolumeSink:
                 pass
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")[:300]
-            raise RuntimeError(f"Databricks {method} {endpoint} -> {error.code}: {detail}") from None
+            failure = SinkError(f"Databricks {method} {endpoint} -> {error.code}: {detail}")
+            failure.code = error.code
+            raise failure from None
+        except urllib.error.URLError as error:
+            raise SinkError(f"cannot reach {self.host}: {error.reason}") from None
 
 
 def _quote(path: str) -> str:

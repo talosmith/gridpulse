@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ingestion.fetch import Envelope, FetchError, fetch_ree, fetch_weather, ree_url, weather_url
 from ingestion.run import date_chunks, run
-from ingestion.sinks import LocalSink, relative_path
+from ingestion.sinks import DatabricksVolumeSink, LocalSink, SinkError, normalize_host, relative_path
 from ingestion.sources import REE_DATASETS, WEATHER_DATASET
 
 PRICES = REE_DATASETS[0]
@@ -91,7 +91,41 @@ class SinkTest(unittest.TestCase):
         self.assertEqual(doc["fetched_at"], "2026-11-08T10:05:00+00:00")
 
 
+class DatabricksSinkTest(unittest.TestCase):
+    def test_host_pasted_from_browser_is_normalized(self):
+        for raw in ("dbc-1a2b.cloud.databricks.com",
+                    "https://dbc-1a2b.cloud.databricks.com/",
+                    " https://dbc-1a2b.cloud.databricks.com/?o=123456#workspace/Users \n"):
+            self.assertEqual(normalize_host(raw), "https://dbc-1a2b.cloud.databricks.com")
+
+    def test_volume_path_is_validated(self):
+        with self.assertRaises(SinkError):
+            DatabricksVolumeSink("dbc-1.cloud.databricks.com", "t", "/Volumes/only_catalog")
+        sink = DatabricksVolumeSink("dbc-1.cloud.databricks.com", "t",
+                                    "/Volumes/workspace/default/data_energy/gridpulse/data/landing/")
+        self.assertEqual(sink.volume, "/Volumes/workspace/default/data_energy")
+        self.assertEqual(sink.volume_root, "/Volumes/workspace/default/data_energy/gridpulse/data/landing")
+
+
 class RunTest(unittest.TestCase):
+    def test_sink_error_aborts_the_run(self):
+        class BrokenSink:
+            calls = 0
+
+            def write(self, env):
+                BrokenSink.calls += 1
+                raise SinkError("404")
+
+        import ingestion.run as module
+        original_ree = module.fetch_ree
+        module.fetch_ree = lambda d, s, e: envelope(dataset=d.name)
+        try:
+            with self.assertRaises(SinkError):
+                run(date(2026, 1, 1), date(2026, 3, 1), BrokenSink())
+        finally:
+            module.fetch_ree = original_ree
+        self.assertEqual(BrokenSink.calls, 1)
+
     def test_failures_are_counted_not_fatal(self):
         class FlakySink:
             def __init__(self):

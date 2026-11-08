@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .fetch import FetchError, fetch_ree, fetch_weather
-from .sinks import DatabricksVolumeSink, LocalSink, Sink
+from .sinks import DatabricksVolumeSink, LocalSink, Sink, SinkError
 from .sources import REE_DATASETS, WEATHER_DATASET
 
 MADRID = ZoneInfo("Europe/Madrid")
@@ -48,18 +48,28 @@ def build_sink(kind: str, local_root: str) -> Sink:
     )
 
 
+WEATHER_CHUNK_DAYS = 31  # weather calls are slow but light: fewer, larger windows
+
+
 def run(start: date, end: date, sink: Sink) -> tuple[int, int]:
-    """Collect every dataset for the window. Returns (written, failed)."""
-    jobs = [(f"ree/{d.name}", lambda s, e, d=d: fetch_ree(d, s, e)) for d in REE_DATASETS]
-    jobs.append((f"open_meteo/{WEATHER_DATASET.name}", lambda s, e: fetch_weather(WEATHER_DATASET, s, e)))
+    """Collect every dataset for the window. Returns (written, failed).
+
+    A failing source is logged and skipped (REE publishes some series late);
+    a failing destination (SinkError) aborts at once, since every write would fail.
+    """
+    jobs = [(f"ree/{d.name}", CHUNK_DAYS, lambda s, e, d=d: fetch_ree(d, s, e)) for d in REE_DATASETS]
+    jobs.append((f"open_meteo/{WEATHER_DATASET.name}", WEATHER_CHUNK_DAYS,
+                 lambda s, e: fetch_weather(WEATHER_DATASET, s, e)))
 
     written = failed = 0
-    for chunk_start, chunk_end in date_chunks(start, end):
-        for label, job in jobs:
+    for label, chunk_days, job in jobs:
+        for chunk_start, chunk_end in date_chunks(start, end, chunk_days):
             try:
                 path = sink.write(job(chunk_start, chunk_end))
                 written += 1
                 log.info("ok   %-26s %s..%s -> %s", label, chunk_start, chunk_end, path)
+            except SinkError:
+                raise
             except (FetchError, RuntimeError) as error:
                 failed += 1
                 log.warning("fail %-26s %s..%s: %s", label, chunk_start, chunk_end, error)
@@ -76,7 +86,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    written, failed = run(args.start, args.end, build_sink(args.sink, args.local_root))
+    try:
+        sink = build_sink(args.sink, args.local_root)
+        if hasattr(sink, "check"):
+            sink.check()
+            log.info("destination ok: %s", getattr(sink, "volume_root", ""))
+        written, failed = run(args.start, args.end, sink)
+    except SinkError as error:
+        log.error("aborting, destination unusable: %s", error)
+        return 2
     log.info("done: %d written, %d failed", written, failed)
     # Partial failures are normal (REE publishes some series late); only fail the run if nothing landed.
     return 0 if written else 1
