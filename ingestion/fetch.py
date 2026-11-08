@@ -13,7 +13,14 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from .sources import OPEN_METEO_URL, REE_BASE_URL, ReeDataset, WeatherDataset
+from .sources import (
+    ARCHIVE_LAG_DAYS,
+    OPEN_METEO_ARCHIVE_URL,
+    OPEN_METEO_URL,
+    REE_BASE_URL,
+    ReeDataset,
+    WeatherDataset,
+)
 
 USER_AGENT = "gridpulse/0.1 (+https://github.com/talosmith/gridpulse)"
 ENVELOPE_VERSION = 1
@@ -82,7 +89,10 @@ def ree_url(dataset: ReeDataset, start: date, end: date) -> str:
     return f"{REE_BASE_URL}/{dataset.path}?{query}"
 
 
-def weather_url(dataset: WeatherDataset, start: date, end: date) -> str:
+def weather_url(dataset: WeatherDataset, start: date, end: date, today: date | None = None) -> str:
+    """Old windows go to the ERA5 archive; recent ones to the forecast API (which only keeps ~3 months)."""
+    today = today or datetime.now(timezone.utc).date()
+    base = OPEN_METEO_ARCHIVE_URL if (today - end).days > ARCHIVE_LAG_DAYS else OPEN_METEO_URL
     query = urllib.parse.urlencode(
         {
             "latitude": ",".join(str(p.latitude) for p in dataset.points),
@@ -94,7 +104,7 @@ def weather_url(dataset: WeatherDataset, start: date, end: date) -> str:
             **dataset.extra,
         }
     )
-    return f"{OPEN_METEO_URL}?{query}"
+    return f"{base}?{query}"
 
 
 def fetch_ree(dataset: ReeDataset, start: date, end: date, get=http_get_json) -> Envelope:

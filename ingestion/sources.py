@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 
 REE_BASE_URL = "https://apidatos.ree.es/es/datos"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+# ERA5 reanalysis: observed-quality history, published with a few days of delay
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+ARCHIVE_LAG_DAYS = 7
 
 
 @dataclass(frozen=True)

@@ -79,7 +79,9 @@ def silver_ree_series():
         "series_id",
         F.coalesce(_map(REE_SERIES_KEYS)[F.col("series_id")], F.col("series_name")).alias("series_key"),
         "series_name",
-        F.when(F.col("series_id") == "600", "15min")
+        # the EU day-ahead market moved from 60 to 15 minute products on 1 Oct 2025
+        F.when((F.col("series_id") == "600") & (F.col("ts_utc") >= F.lit("2025-09-30 22:00:00").cast("timestamp")), "15min")
+         .when(F.col("series_id") == "600", "1h")
          .when(F.col("series_id") == "1001", "1h")
          .otherwise(_map({k: v for k, v in GRANULARITY.items() if v})[F.col("dataset")])
          .alias("granularity"),

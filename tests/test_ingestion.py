@@ -62,6 +62,13 @@ class FetchTest(unittest.TestCase):
         url = weather_url(WEATHER_DATASET, date(2026, 10, 25), date(2026, 10, 25))
         self.assertIn("timezone=GMT", url)
 
+    def test_old_windows_use_archive_recent_use_forecast(self):
+        today = date(2026, 11, 8)
+        old = weather_url(WEATHER_DATASET, date(2025, 11, 1), date(2025, 11, 7), today=today)
+        recent = weather_url(WEATHER_DATASET, date(2026, 11, 2), date(2026, 11, 8), today=today)
+        self.assertTrue(old.startswith("https://archive-api.open-meteo.com/"))
+        self.assertTrue(recent.startswith("https://api.open-meteo.com/"))
+
     def test_weather_location_count_mismatch_raises(self):
         with self.assertRaises(FetchError):
             fetch_weather(WEATHER_DATASET, date(2026, 11, 1), date(2026, 11, 1),
