@@ -15,6 +15,8 @@ GridPulse collects Spanish grid data (Red Eléctrica de España) and weather for
 > | Thu 5 Nov | 35% | 239 €/MWh | 0 |
 > | Fri 6 Nov | 35% | 246 €/MWh | 0 |
 >
+> Over the first full year (1 Nov 2025 – 8 Nov 2026) there were **766 hours of negative prices across 120 days**, concentrated in Feb–Jun (spring sun and wind). The cheapest day was 29 Mar 2026, the 23-hour DST day, at an average of **0.18 €/MWh**.
+>
 > Explaining moves like these is what GridPulse is for.
 
 ```mermaid
