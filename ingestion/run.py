@@ -92,6 +92,17 @@ def main(argv: list[str] | None = None) -> int:
             sink.check()
             log.info("destination ok: %s", getattr(sink, "volume_root", ""))
         written, failed = run(args.start, args.end, sink)
+        pipeline_id = os.environ.get("DATABRICKS_PIPELINE_ID", "").strip()
+        if written and pipeline_id and hasattr(sink, "trigger_pipeline"):
+            try:
+                sink.trigger_pipeline(pipeline_id)
+                log.info("pipeline %s update started", pipeline_id)
+            except SinkError as error:
+                # 409 = an update is already running: it will pick the new files up anyway
+                if getattr(error, "code", None) != 409:
+                    log.error("files landed, but the pipeline did not start: %s", error)
+                    return 3
+                log.info("pipeline already running; new files will be picked up")
     except SinkError as error:
         log.error("aborting, destination unusable: %s", error)
         return 2

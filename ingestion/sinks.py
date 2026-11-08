@@ -86,6 +86,15 @@ class DatabricksVolumeSink:
             }.get(code, "unexpected answer")
             raise SinkError(f"Databricks preflight failed: {hint}. {error}") from None
 
+    def trigger_pipeline(self, pipeline_id: str) -> None:
+        """Start an update of the Lakeflow pipeline so new files flow to gold right away."""
+        self._request(
+            "POST",
+            f"/api/2.0/pipelines/{urllib.parse.quote(pipeline_id.strip())}/updates",
+            data=b"{}",
+            content_type="application/json",
+        )
+
     def write(self, envelope: Envelope) -> str:
         path = f"{self.volume_root}/{relative_path(envelope)}"
         self._request("PUT", f"/api/2.0/fs/directories{_quote(path.rsplit('/', 1)[0])}")
